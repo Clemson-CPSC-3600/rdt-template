@@ -206,6 +206,10 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Gradescope autograder build artifact (regenerate with
+# build-gradescope-autograder.sh; never commit the zip)
+autograder.zip
+
 # Development trace capture — runtime state, never committed
 .test-run-state/
 .test-runs.log
@@ -229,3 +233,8 @@ __marimo__/
 # because they are shipped by the instructor. This single exclusion protects
 # only the auth blob.
 .codex/auth.json
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

@@ -2,7 +2,7 @@ External AI tool usage attestation
 ===================================
 
 If you used any AI tool that is NOT locally captured by this repo
-(ChatGPT in a browser, Claude.ai, Cursor, GitHub Copilot Chat, etc.)
+(ChatGPT in a browser, Claude.ai, Cursor, etc.)
 during this assignment, log it here. One entry per session is enough;
 include the tool, what you asked, and what came back at a high level.
 

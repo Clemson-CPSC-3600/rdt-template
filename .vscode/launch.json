@@ -19,6 +19,8 @@
       "module": "pytest",
       "args": [
         "tests",
+        "-m",
+        "bundle",
         "-v"
       ],
       "console": "integratedTerminal",

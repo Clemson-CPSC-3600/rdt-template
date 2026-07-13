@@ -97,6 +97,36 @@ def test_missing_credential_helper_reports_failure(student_repo, monkeypatch):
     assert any("credential helper" in f for f in failures)
 
 
+def test_ssh_remote_does_not_require_credential_helper(student_repo, monkeypatch):
+    """SSH authentication does not use Git's HTTPS credential helpers."""
+    _force_venv(monkeypatch)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "git@github.com:course/repo.git"],
+        cwd=student_repo,
+        check=True,
+    )
+
+    assert preflight.check_environment(student_repo) == []
+
+
+def test_url_specific_https_credential_helper_is_accepted(student_repo, monkeypatch):
+    """Git permits helpers scoped to one HTTPS URL instead of globally."""
+    _force_venv(monkeypatch)
+    remote_url = "https://example.com/course/repo.git"
+    subprocess.run(
+        ["git", "remote", "add", "origin", remote_url],
+        cwd=student_repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "credential.https://example.com.helper", "store"],
+        cwd=student_repo,
+        check=True,
+    )
+
+    assert preflight.check_environment(student_repo) == []
+
+
 def test_instructor_mode_skips_git_checks(tmp_repo, monkeypatch):
     """capture_enabled=false (instructor template) — no remote/helper required."""
     _force_venv(monkeypatch)
