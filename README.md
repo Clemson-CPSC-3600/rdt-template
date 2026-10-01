@@ -67,6 +67,22 @@ marker. It preserves the repository's development-trace capture and reports
 the lowest incomplete bundle first. See [TESTING.md](TESTING.md) for focused
 commands and test organization.
 
+## Debug with stream traces
+
+When a test tells you *that* your protocol misbehaved but not *where*, render a
+readable, event-by-event log of what your host actually did and compare it
+against a correct implementation:
+
+```bash
+python tools/trace_streams.py --list        # available scenarios
+python tools/trace_streams.py               # render + compare all scenarios
+```
+
+It writes per-stream logs under `trace-logs/` and points you at the first line
+where your behavior diverges from the reference. See
+[DEBUGGING.md](DEBUGGING.md) for how to read the logs and a symptom-to-cause
+guide.
+
 ## Specification-grading bundles
 
 | Bundle | Protocol capability | Grade when cumulative |

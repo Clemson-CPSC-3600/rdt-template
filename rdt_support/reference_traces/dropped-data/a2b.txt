@@ -1,0 +1,60 @@
+STREAM A→B   (A sends data · B acknowledges)
+──────────────────────────────────────────────────────────────────────────
+t=0.000   APP→A  queue   "A-0"
+t=0.000   A      timer   start (2.000s)
+t=0.000   A      send    DATA seq=0 len=3 cksum=36559  "A-0"  attempt=1
+                  0000 0000 0000 8ecf 0000 0003 412d 30
+t=0.010   APP→A  queue   "A-1"
+t=0.010   A      send    DATA seq=1 len=3 cksum=36302  "A-1"  attempt=1
+                  0000 0000 0001 8dce 0000 0003 412d 31
+t=0.020   APP→A  queue   "A-2"
+t=0.020   A      send    DATA seq=2 len=3 cksum=36045  "A-2"  attempt=1
+                  0000 0000 0002 8ccd 0000 0003 412d 32
+t=0.050   NET    DATA seq=0 len=3 cksum=36559  delivered intact
+                  0000 0000 0000 8ecf 0000 0003 412d 30
+t=0.050   B      recv    DATA seq=0
+t=0.050   B→APP  deliver "A-0"
+t=0.050   B      send    ACK seq=0 cksum=65534
+                  0001 0000 0000 fffe
+t=0.100   NET    DATA seq=1 len=3 cksum=36302  LOST in transit  (never reaches B)
+                  0000 0000 0001 8dce 0000 0003 412d 31
+t=0.100   NET    DATA seq=2 len=3 cksum=36045  delivered intact
+                  0000 0000 0002 8ccd 0000 0003 412d 32
+t=0.100   B      recv    DATA seq=2
+t=0.100   B      send    ACK seq=0 cksum=65534
+                  0001 0000 0000 fffe
+t=0.105   NET    ACK seq=0 cksum=65534  delivered intact
+                  0001 0000 0000 fffe
+t=0.105   A      recv    ACK seq=0
+t=0.105   A      timer   stop
+t=0.105   A      timer   start (2.000s)
+t=0.155   NET    ACK seq=0 cksum=65534  delivered intact
+                  0001 0000 0000 fffe
+t=0.155   A      recv    ACK seq=0
+t=2.105   A      timer   fires  → retransmit window
+t=2.105   A      timer   start (2.000s)
+t=2.105   A      send    DATA seq=1 len=3 cksum=36302  "A-1"  attempt=2
+                  0000 0000 0001 8dce 0000 0003 412d 31
+t=2.105   A      send    DATA seq=2 len=3 cksum=36045  "A-2"  attempt=2
+                  0000 0000 0002 8ccd 0000 0003 412d 32
+t=2.155   NET    DATA seq=1 len=3 cksum=36302  delivered intact
+                  0000 0000 0001 8dce 0000 0003 412d 31
+t=2.155   B      recv    DATA seq=1
+t=2.155   B→APP  deliver "A-1"
+t=2.155   B      send    ACK seq=1 cksum=65533
+                  0001 0000 0001 fffd
+t=2.205   NET    DATA seq=2 len=3 cksum=36045  delivered intact
+                  0000 0000 0002 8ccd 0000 0003 412d 32
+t=2.205   B      recv    DATA seq=2
+t=2.205   NET    ACK seq=1 cksum=65533  delivered intact
+                  0001 0000 0001 fffd
+t=2.205   A      recv    ACK seq=1
+t=2.205   B→APP  deliver "A-2"
+t=2.205   B      send    ACK seq=2 cksum=65532
+                  0001 0000 0002 fffc
+t=2.205   A      timer   stop
+t=2.205   A      timer   start (2.000s)
+t=2.255   NET    ACK seq=2 cksum=65532  delivered intact
+                  0001 0000 0002 fffc
+t=2.255   A      recv    ACK seq=2
+t=2.255   A      timer   stop

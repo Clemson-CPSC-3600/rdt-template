@@ -49,7 +49,12 @@ class GBNHost:
         raise NotImplementedError
 
     def receive_from_network_layer(self, packet):
-        """Handle one DATA or ACK packet received from the network."""
+        """Handle one packet received from the network.
+
+        A corrupt packet's type field cannot be trusted, so you cannot always
+        know whether an arriving packet was DATA or an ACK.  Read the
+        "Handling corruption" rule in PROTOCOL.md before deciding how to react.
+        """
 
         raise NotImplementedError
 

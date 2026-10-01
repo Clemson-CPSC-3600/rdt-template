@@ -71,6 +71,7 @@ def test_corrupt_future_duplicate_and_malformed_acks_do_not_open_the_window():
         sender.receive_from_application_layer(payload)
     simulator.network_packets.clear()
 
+    # A valid but out-of-window ACK, then two corrupt packets.
     sender.receive_from_network_layer(sender.create_ack_pkt(4))
     sender.receive_from_network_layer(sender.create_ack_pkt(0) + b"extra")
 
@@ -78,13 +79,55 @@ def test_corrupt_future_duplicate_and_malformed_acks_do_not_open_the_window():
     struct.pack_into("!I", stale_checksum_ack, 2, 1)
     sender.receive_from_network_layer(bytes(stale_checksum_ack))
 
-    assert simulator.network_packets == []
+    # None of these opened the window, so no new DATA was transmitted...
+    assert not any(
+        packet_identity(packet)[0] == DATA_PACKET
+        for _, packet in simulator.network_packets
+    )
+    # ...but each corrupt packet made the endpoint repeat its last cumulative
+    # ACK, because a corrupt packet's type cannot be trusted.  The out-of-window
+    # ACK was intact, so it produced nothing.
+    sentinel = (ACK_PACKET, (1 << 32) - 1)
+    assert [
+        packet_identity(packet) for _, packet in simulator.network_packets
+    ] == [sentinel, sentinel]
 
+    simulator.network_packets.clear()
     sender.receive_from_network_layer(sender.create_ack_pkt(0))
     sender.receive_from_network_layer(sender.create_ack_pkt(0))
     assert [
         packet_identity(packet) for _, packet in simulator.network_packets
     ] == [(DATA_PACKET, 3)]
+
+
+@pytest.mark.bundle(3)
+def test_corrupt_type_field_still_repeats_last_cumulative_ack():
+    """A corrupt packet's type byte is untrustworthy.
+
+    Corruption that flips DATA(0) into what looks like an ACK(1) must not fool
+    the endpoint into staying silent: it still repeats its last cumulative ACK.
+    An implementation that reads the type of a corrupt packet fails here.
+    """
+    from src.gbn_host import GBNHost
+
+    simulator = RecordingSimulator()
+    receiver = GBNHost(simulator, EventEntity.B, 2.0, 4)
+
+    # A real DATA(0) packet whose type field is flipped 0 (DATA) -> 1 (ACK).
+    # The stored checksum no longer matches, so the packet is corrupt and its
+    # type must not be believed.
+    disguised = bytearray(receiver.create_data_pkt(0, "zero"))
+    disguised[1] ^= 0x01
+    assert receiver.is_corrupt(bytes(disguised))
+    assert packet_identity(bytes(disguised))[0] == ACK_PACKET  # looks like an ACK
+
+    receiver.receive_from_network_layer(bytes(disguised))
+
+    sentinel = (ACK_PACKET, (1 << 32) - 1)
+    assert simulator.application_payloads == []
+    assert [
+        packet_identity(packet) for _, packet in simulator.network_packets
+    ] == [sentinel]
 
 
 @pytest.mark.bundle(3)

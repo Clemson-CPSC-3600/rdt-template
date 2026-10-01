@@ -21,6 +21,9 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple, Type
 DATA_PACKET = 0
 ACK_PACKET = 1
 
+# Wire size of the DATA header (!HIHI): type + seq + checksum + length.
+_DATA_HEADER_SIZE = 12
+
 
 class EventEntity(IntEnum):
     """The two full-duplex protocol endpoints."""
@@ -61,6 +64,32 @@ class Transmission:
     corrupted: bool
 
 
+@dataclass
+class TraceEvent:
+    """One observable event captured for the human-readable stream logs.
+
+    Every field is observable at the simulator boundary -- never host internal
+    state -- so a rendering is a pure function of what actually crossed a layer.
+    That is what lets a student log and a reference log diff meaningfully: they
+    differ only where the two hosts genuinely behaved differently.
+    """
+
+    order: int  # emission counter; stable tie-break when times are equal
+    time: float
+    kind: str  # app_down|app_up|send|net|recv|timer_start|timer_stop|timer_fire
+    owner: EventEntity  # data stream this belongs to, named by its DATA sender
+    entity: EventEntity  # the acting host (the receiver for net/recv events)
+    packet_type: Optional[int] = None
+    seq_num: Optional[int] = None
+    attempt: Optional[int] = None
+    payload: Optional[str] = None
+    sent_bytes: Optional[bytes] = None
+    delivered_bytes: Optional[bytes] = None
+    outcome: Optional[str] = None  # net events: intact|corrupted|lost
+    timer_interval: Optional[float] = None
+    after_corrupt: bool = False  # send emitted while reacting to a corrupt packet
+
+
 class _EventKind(str, Enum):
     APPLICATION = "application"
     NETWORK = "network"
@@ -75,6 +104,7 @@ class _QueuedEvent:
     entity: EventEntity = field(compare=False)
     value: object = field(compare=False, default=None)
     generation: int = field(compare=False, default=0)
+    corrupt: bool = field(compare=False, default=False)
 
 
 class NetworkSimulator:
@@ -97,6 +127,7 @@ class NetworkSimulator:
         network_delay: float = 0.05,
         faults: Optional[FaultPlan] = None,
         max_events: int = 20_000,
+        capture_trace: bool = False,
     ) -> None:
         if timer_interval <= 0:
             raise ValueError("timer_interval must be positive")
@@ -127,6 +158,9 @@ class NetworkSimulator:
         self._attempts: Counter[PacketKey] = Counter()
         self._queue: List[_QueuedEvent] = []
         self._event_order = itertools.count()
+        self._trace: Optional[List[TraceEvent]] = [] if capture_trace else None
+        self._trace_order = itertools.count()
+        self._reacting_corrupt = False  # true while a host processes a corrupt packet
         self._last_network_arrival = {
             EventEntity.A: 0.0,
             EventEntity.B: 0.0,
@@ -163,6 +197,49 @@ class NetworkSimulator:
     def opposite_entity(entity: EventEntity) -> EventEntity:
         return EventEntity.B if entity == EventEntity.A else EventEntity.A
 
+    @property
+    def trace(self) -> List[TraceEvent]:
+        """Captured observable events (empty unless ``capture_trace=True``)."""
+
+        return list(self._trace) if self._trace is not None else []
+
+    def _emit(
+        self,
+        kind: str,
+        time: float,
+        owner: EventEntity,
+        entity: EventEntity,
+        **fields,
+    ) -> None:
+        if self._trace is None:
+            return
+        self._trace.append(
+            TraceEvent(
+                order=next(self._trace_order),
+                time=time,
+                kind=kind,
+                owner=owner,
+                entity=entity,
+                **fields,
+            )
+        )
+
+    def _stream_owner(self, packet_type: int, sender: EventEntity) -> EventEntity:
+        # DATA belongs to its sender's stream; an ACK belongs to the stream of
+        # the data it acknowledges -- the peer that sent that data.
+        if packet_type == DATA_PACKET:
+            return sender
+        return self.opposite_entity(sender)
+
+    @staticmethod
+    def _payload_text(packet: bytes, packet_type: int) -> Optional[str]:
+        if packet_type != DATA_PACKET:
+            return None
+        try:
+            return packet[_DATA_HEADER_SIZE:].decode("utf-8")
+        except (UnicodeError, IndexError):
+            return None
+
     def _schedule(
         self,
         time: float,
@@ -170,6 +247,7 @@ class NetworkSimulator:
         entity: EventEntity,
         value: object = None,
         generation: int = 0,
+        corrupt: bool = False,
     ) -> None:
         heapq.heappush(
             self._queue,
@@ -180,6 +258,7 @@ class NetworkSimulator:
                 entity,
                 value,
                 generation,
+                corrupt,
             ),
         )
 
@@ -221,30 +300,107 @@ class NetworkSimulator:
                 corrupted=corrupted,
             )
         )
+        if self._trace is not None:
+            owner = self._stream_owner(packet_type, entity)
+            self._emit(
+                "send",
+                self.time,
+                owner,
+                entity,
+                packet_type=packet_type,
+                seq_num=sequence_number,
+                attempt=attempt,
+                payload=self._payload_text(packet, packet_type),
+                sent_bytes=bytes(packet),
+                after_corrupt=self._reacting_corrupt,
+            )
+
         if dropped:
+            if self._trace is not None:
+                # Show the loss at the arrival time it would have had, without
+                # advancing the medium's serialization clock -- a dropped packet
+                # never occupies a delivery slot.
+                lost_at = (
+                    max(self.time, self._last_network_arrival[receiver])
+                    + self._network_delay
+                )
+                self._emit(
+                    "net",
+                    lost_at,
+                    owner,
+                    receiver,
+                    packet_type=packet_type,
+                    seq_num=sequence_number,
+                    outcome="lost",
+                    sent_bytes=bytes(packet),
+                )
             return
 
         delivered_packet = self._corrupt(packet) if corrupted else bytes(packet)
         arrival_time = max(self.time, self._last_network_arrival[receiver])
         arrival_time += self._network_delay
         self._last_network_arrival[receiver] = arrival_time
-        self._schedule(arrival_time, _EventKind.NETWORK, receiver, delivered_packet)
+        self._schedule(
+            arrival_time,
+            _EventKind.NETWORK,
+            receiver,
+            delivered_packet,
+            corrupt=corrupted,
+        )
+
+        if self._trace is not None:
+            self._emit(
+                "net",
+                arrival_time,
+                owner,
+                receiver,
+                packet_type=packet_type,
+                seq_num=sequence_number,
+                outcome="corrupted" if corrupted else "intact",
+                sent_bytes=bytes(packet),
+                delivered_bytes=delivered_packet,
+            )
+            # Emit the receive eagerly, at arrival time, so it sorts ahead of
+            # the reactions the host makes when the NETWORK event later fires.
+            self._emit(
+                "recv",
+                arrival_time,
+                owner,
+                receiver,
+                packet_type=packet_type,
+                seq_num=sequence_number,
+            )
 
     def pass_to_application_layer(self, entity: EventEntity, payload: str) -> None:
         """Record data delivered by a host to its local application."""
 
         self.delivered_payloads[entity].append(payload)
+        self._emit(
+            "app_up",
+            self.time,
+            self.opposite_entity(entity),
+            entity,
+            payload=payload,
+        )
 
     def start_timer(self, entity: EventEntity, increment: float) -> None:
         """Start the endpoint's single Go-Back-N timer."""
 
         if self._timer_deadline[entity] is not None:
             self.timer_violations.append(f"{entity.name}: timer started while running")
+            self._emit(
+                "timer_warn",
+                self.time,
+                entity,
+                entity,
+                payload="started a timer while one was already running",
+            )
             return
         self._timer_generation[entity] += 1
         generation = self._timer_generation[entity]
         deadline = self.time + increment
         self._timer_deadline[entity] = deadline
+        self._emit("timer_start", self.time, entity, entity, timer_interval=increment)
         self._schedule(deadline, _EventKind.TIMER, entity, generation=generation)
 
     def stop_timer(self, entity: EventEntity) -> None:
@@ -252,9 +408,17 @@ class NetworkSimulator:
 
         if self._timer_deadline[entity] is None:
             self.timer_violations.append(f"{entity.name}: timer stopped while idle")
+            self._emit(
+                "timer_warn",
+                self.time,
+                entity,
+                entity,
+                payload="stopped a timer while none was running",
+            )
             return
         self._timer_deadline[entity] = None
         self._timer_generation[entity] += 1
+        self._emit("timer_stop", self.time, entity, entity)
 
     def attempts_for(
         self,
@@ -280,15 +444,25 @@ class NetworkSimulator:
             self.time = event.time
             host = self.hosts[event.entity]
             if event.kind == _EventKind.APPLICATION:
+                self._emit(
+                    "app_down",
+                    self.time,
+                    event.entity,
+                    event.entity,
+                    payload=event.value,
+                )
                 host.receive_from_application_layer(event.value)
             elif event.kind == _EventKind.NETWORK:
+                self._reacting_corrupt = event.corrupt
                 host.receive_from_network_layer(event.value)
+                self._reacting_corrupt = False
             elif event.kind == _EventKind.TIMER:
                 if event.generation != self._timer_generation[event.entity]:
                     continue
                 if self._timer_deadline[event.entity] != event.time:
                     continue
                 self._timer_deadline[event.entity] = None
+                self._emit("timer_fire", self.time, event.entity, event.entity)
                 host.timer_interrupt()
 
         return self
