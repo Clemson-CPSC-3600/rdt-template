@@ -1,0 +1,30 @@
+STREAM B→A   (B sends data · A acknowledges)
+──────────────────────────────────────────────────────────────────────────
+t=0.005   APP→B  queue   "B-0"
+t=0.005   B      timer   start (2.000s)
+t=0.005   B      send    DATA seq=0 len=3 cksum=36303  "B-0"  attempt=1
+                  0000 0000 0000 8dcf 0000 0003 422d 30
+t=0.015   APP→B  queue   "B-1"
+t=0.015   B      send    DATA seq=1 len=3 cksum=36046  "B-1"  attempt=1
+                  0000 0000 0001 8cce 0000 0003 422d 31
+t=0.055   NET    DATA seq=0 len=3 cksum=36303  delivered intact
+                  0000 0000 0000 8dcf 0000 0003 422d 30
+t=0.055   A      recv    DATA seq=0
+t=0.055   A→APP  deliver "B-0"
+t=0.055   A      send    ACK seq=0 cksum=65534
+                  0001 0000 0000 fffe
+t=0.105   NET    DATA seq=1 len=3 cksum=36046  delivered intact
+                  0000 0000 0001 8cce 0000 0003 422d 31
+t=0.105   A      recv    DATA seq=1
+t=0.105   A→APP  deliver "B-1"
+t=0.105   A      send    ACK seq=1 cksum=65533
+                  0001 0000 0001 fffd
+t=0.200   NET    ACK seq=0 cksum=65534  delivered intact
+                  0001 0000 0000 fffe
+t=0.200   B      recv    ACK seq=0
+t=0.200   B      timer   stop
+t=0.200   B      timer   start (2.000s)
+t=0.250   NET    ACK seq=1 cksum=65533  delivered intact
+                  0001 0000 0001 fffd
+t=0.250   B      recv    ACK seq=1
+t=0.250   B      timer   stop

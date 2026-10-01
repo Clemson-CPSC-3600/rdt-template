@@ -1,0 +1,80 @@
+STREAM B→A   (B sends data · A acknowledges)
+──────────────────────────────────────────────────────────────────────────
+t=0.005   APP→B  queue   "B-0"
+t=0.005   B      timer   start (2.000s)
+t=0.005   B      send    DATA seq=0 len=3 cksum=36303  "B-0"  attempt=1
+                  0000 0000 0000 8dcf 0000 0003 422d 30
+t=0.015   APP→B  queue   "B-1"
+t=0.015   B      send    DATA seq=1 len=3 cksum=36046  "B-1"  attempt=1
+                  0000 0000 0001 8cce 0000 0003 422d 31
+t=0.025   APP→B  queue   "B-2"
+t=0.025   B      send    DATA seq=2 len=3 cksum=35789  "B-2"  attempt=1
+                  0000 0000 0002 8bcd 0000 0003 422d 32
+t=0.055   NET    DATA seq=0 len=3 cksum=36303  delivered intact
+                  0000 0000 0000 8dcf 0000 0003 422d 30
+t=0.055   A      recv    DATA seq=0
+t=0.055   A→APP  deliver "B-0"
+t=0.055   A      send    ACK seq=0 cksum=65534
+                  0001 0000 0000 fffe
+t=0.105   NET    DATA seq=1  CORRUPTED in transit
+                  sent      0000 0000 0001 8cce 0000 0003 422d 31
+                  delivered 0000 0000 0001 8cce 0000 0003 422d 30   (byte 14: 31→30)
+t=0.105   A      recv    DATA seq=1
+t=0.105   A      send    ACK seq=0 cksum=65534  (repeat — reacted to a corrupt packet)
+                  0001 0000 0000 fffe
+t=0.155   NET    DATA seq=2 len=3 cksum=35789  delivered intact
+                  0000 0000 0002 8bcd 0000 0003 422d 32
+t=0.155   A      recv    DATA seq=2
+t=0.155   A      send    ACK seq=0 cksum=65534
+                  0001 0000 0000 fffe
+t=0.210   NET    ACK seq=0 cksum=65534  delivered intact
+                  0001 0000 0000 fffe
+t=0.210   B      recv    ACK seq=0
+t=0.210   B      timer   stop
+t=0.210   B      timer   start (2.000s)
+t=0.260   NET    ACK seq=0 cksum=65534  delivered intact
+                  0001 0000 0000 fffe
+t=0.260   B      recv    ACK seq=0
+t=0.310   NET    ACK seq=0 cksum=65534  delivered intact
+                  0001 0000 0000 fffe
+t=0.310   B      recv    ACK seq=0
+t=2.210   B      timer   fires  → retransmit window
+t=2.210   B      timer   start (2.000s)
+t=2.210   B      send    DATA seq=1 len=3 cksum=36046  "B-1"  attempt=2
+                  0000 0000 0001 8cce 0000 0003 422d 31
+t=2.210   B      send    DATA seq=2 len=3 cksum=35789  "B-2"  attempt=2
+                  0000 0000 0002 8bcd 0000 0003 422d 32
+t=2.300   NET    DATA seq=1 len=3 cksum=36046  delivered intact
+                  0000 0000 0001 8cce 0000 0003 422d 31
+t=2.300   A      recv    DATA seq=1
+t=2.300   A→APP  deliver "B-1"
+t=2.300   A      send    ACK seq=1 cksum=65533
+                  0001 0000 0001 fffd
+t=2.350   NET    DATA seq=2 len=3 cksum=35789  delivered intact
+                  0000 0000 0002 8bcd 0000 0003 422d 32
+t=2.350   A      recv    DATA seq=2
+t=2.350   NET    ACK seq=1 cksum=65533  delivered intact
+                  0001 0000 0001 fffd
+t=2.350   B      recv    ACK seq=1
+t=2.350   A→APP  deliver "B-2"
+t=2.350   A      send    ACK seq=2 cksum=65532
+                  0001 0000 0002 fffc
+t=2.350   B      timer   stop
+t=2.350   B      timer   start (2.000s)
+t=2.400   NET    ACK seq=2  CORRUPTED in transit
+                  sent      0001 0000 0002 fffc
+                  delivered 0001 0000 0002 fffd   (byte 7: fc→fd)
+t=2.400   B      recv    ACK seq=2
+t=4.350   B      timer   fires  → retransmit window
+t=4.350   B      timer   start (2.000s)
+t=4.350   B      send    DATA seq=2 len=3 cksum=35789  "B-2"  attempt=3
+                  0000 0000 0002 8bcd 0000 0003 422d 32
+t=4.400   NET    DATA seq=2 len=3 cksum=35789  delivered intact
+                  0000 0000 0002 8bcd 0000 0003 422d 32
+t=4.400   A      recv    DATA seq=2
+t=4.400   A      send    ACK seq=2 cksum=65532
+                  0001 0000 0002 fffc
+t=4.450   NET    ACK seq=2 cksum=65532  delivered intact
+                  0001 0000 0002 fffc
+t=4.450   B      recv    ACK seq=2
+t=4.450   B      timer   stop
